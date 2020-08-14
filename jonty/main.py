@@ -17,8 +17,8 @@ def import_dataset() -> pd.DataFrame:
 
 
 def remove_below_confidence(tweetset=pd.DataFrame(),
-                      heading='airline_sentiment_confidence',
-                      cutoff=0.9) -> pd.DataFrame:
+                            heading='airline_sentiment_confidence',
+                            cutoff=0.9) -> pd.DataFrame:
     """
     Returns the dataset, removing any tweets with confidence values lower than
     or equal to the cutoff under the given heading.
@@ -29,8 +29,8 @@ def remove_below_confidence(tweetset=pd.DataFrame(),
 
 
 def remove_above_confidence(tweetset=pd.DataFrame(),
-                      heading='airline_sentiment_confidence',
-                      cutoff=0.9) -> pd.DataFrame:
+                            heading='airline_sentiment_confidence',
+                            cutoff=0.9) -> pd.DataFrame:
     """
     Returns the dataset, removing any tweets with confidence values greater than the cutoff
     under the given heading. Does not remove tweets with NaN under the heading.
@@ -39,7 +39,7 @@ def remove_above_confidence(tweetset=pd.DataFrame(),
                         (tweetset[heading].isnull())]
 
 
-def sentiment_proportion(tweetset=pd.DataFrame()) -> pd.DataFrame:
+def sentiment_proportion_each_airline(tweetset=pd.DataFrame()) -> pd.DataFrame:
     """
     Presents each airline's sentiment levels as
     percentages of all tweets directed at the airline
@@ -51,12 +51,8 @@ def sentiment_proportion(tweetset=pd.DataFrame()) -> pd.DataFrame:
 
     for airline in airlines:
         tweets = tweetset.loc[tweetset['airline'] == airline]
-        sentiments = tweets['airline_sentiment']
 
-        size = len(sentiments.index)
-        pos = len(sentiments.loc[sentiments == 'positive'].index) / size
-        neu = len(sentiments.loc[sentiments == 'neutral'].index) / size
-        neg = len(sentiments.loc[sentiments == 'negative'].index) / size
+        pos, neu, neg = sentiment_proportion(tweets)
 
         sentiment_percentages.append({'airline': airline,
                                       'positive': pos,
@@ -70,9 +66,20 @@ def sentiment_proportion(tweetset=pd.DataFrame()) -> pd.DataFrame:
     return sentiment_percentages
 
 
+def sentiment_proportion(tweetset=pd.DataFrame()) -> pd.DataFrame:
+    sentiments = tweetset['airline_sentiment']
+
+    size = len(sentiments.index)
+    pos = len(sentiments.loc[sentiments == 'positive'].index) / size
+    neu = len(sentiments.loc[sentiments == 'neutral'].index) / size
+    neg = len(sentiments.loc[sentiments == 'negative'].index) / size
+
+    return pos, neu, neg
+
+
 def destroy_retweets(tweetset=pd.DataFrame()) -> pd.DataFrame:
     """
-    Removes all replies, that is, tweets containing unicode 'RT @'.
+    Removes all retweets, that is, tweets containing unicode 'RT @'.
     """
     return tweetset.loc[tweetset['text'].str.contains('^(?!RT @).*$')]
 
@@ -135,7 +142,8 @@ def find_ngrams(tweetset=pd.DataFrame(),
     tweetset_copy = destroy_retweets(tweetset_copy)
     print('The ' + str(ngram_count) + ' most frequently occurring ' +
           str(n) + '-grams in original tweets with ' + heading + ' scores below ' + str(cutoff) + ':')
-    tweets = remove_above_confidence(tweetset_copy, heading=heading, cutoff=cutoff)['text'].to_numpy()
+    tweets = remove_above_confidence(tweetset_copy, heading=heading, cutoff=cutoff)[
+        'text'].to_numpy()
 
     ngrams = [ngram for text in tweets for ngram in shingle(
         text, n)]
@@ -146,6 +154,53 @@ def find_ngrams(tweetset=pd.DataFrame(),
     return ngrams
 
 
+def grab_retweets(tweetset=pd.DataFrame(), name=str, text=str):
+    """
+    Returns a list of retweets for a given tweet
+    """
+    retweet_indicator = 'RT @' + name + ': ' + text
+    return grab_tweets_containing(tweetset, retweet_indicator)
+
+
+def grab_replies(tweetset=pd.DataFrame(), name=str, text=str):
+    """
+    Returns a list of replies for a given tweet
+    """
+    reply_indicator = '“@' + name + ': ' + text + ' http://t.co/.*' + '”'
+    return grab_tweets_containing(tweetset, reply_indicator)
+
+
+def grab_tweets_containing(tweetset=pd.DataFrame(), text=str):
+    return tweetset.loc[tweetset['text'].str.contains(text)]
+
+
+def tweet_popularity_score(tweetset=pd.DataFrame(), name=str, text=str):
+    """
+    Scores a tweet by the number of combined retweets & replies it has
+    """
+    retweets = grab_retweets(tweetset, name=name, text=text)
+    retweet_count = len(retweets.index)
+    replies = grab_replies(tweetset, name=name, text=text)
+    reply_count = len(replies.index)
+    print('Popularity of tweet “' + text + '” by ' + name + ':')
+    print('    ' + str(retweet_count + reply_count))
+    return retweet_count + reply_count
+
+
+def tweet_public_sentiment_score(tweetset=pd.DataFrame(), name=str, text=str):
+    retweets = grab_retweets(tweetset, name=name, text=text)
+    replies = grab_replies(tweetset, name=name, text=text)
+    responses = pd.concat([retweets, replies])
+    pos, neu, neg = sentiment_proportion(responses)
+    print('Sentiment towards tweet “' +
+          text + '” by ' + name + ':')
+    print('    ' +
+          'Positive: ' + str(round(pos * 100, 2)) + '%' + ', ' +
+          'Neutral: ' + str(round(neu * 100, 2)) + '%' + ', ' +
+          'Negative: ' + str(round(neg * 100, 2)) + '%')
+    return pos, neu, neg
+
+
 def main():
     tweetset = import_dataset()
     # Remove tweets with airline_sentiment_confidence below 0.75
@@ -154,6 +209,10 @@ def main():
     print()
     tweet_count(tweetset)
     find_ngrams(tweetset, cutoff=1.0)
+    tweet_popularity_score(tweetset, name='JetBlue',
+                           text='Our fleet\'s on fleek.')
+    tweet_public_sentiment_score(tweetset, name='JetBlue',
+                           text='Our fleet\'s on fleek.')
 
 
 if __name__ == "__main__":
